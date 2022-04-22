@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { AuthService } from 'src/app/services/auth.service';
 
 @Component({
   selector: 'app-register',
@@ -7,12 +8,14 @@ import { FormControl, FormGroup, Validators } from '@angular/forms';
   styleUrls: ['./register.component.css'],
 })
 export class RegisterComponent implements OnInit {
+  inSubmission = false;
+
+  // For alert component
   showAlert = false;
-  alertMsg = 'Please Wait, Acount Created...';
+  alertMsg = 'Please Wait, Creating account...';
   alertColor = 'blue';
 
   // form control - INPUTS
-
   name = new FormControl('', [Validators.required, Validators.minLength(3)]);
   email = new FormControl('', [Validators.required, Validators.email]);
   age = new FormControl('', [
@@ -39,13 +42,27 @@ export class RegisterComponent implements OnInit {
     phoneNumber: this.phoneNumber,
   });
 
-  constructor() {}
+  constructor(private auth: AuthService) {}
 
   ngOnInit(): void {}
 
-  register() {
+  async register() {
     this.showAlert = true;
-    this.alertMsg = 'Please Wait, Acount Created...';
+    this.alertMsg = 'Please Wait, Creating your Acount...';
     this.alertColor = 'blue';
+    this.inSubmission = true;
+
+    // authenticate user to firebase
+    try {
+      await this.auth.createUser(this.registerForm.value);
+    } catch (error) {
+      console.error(error);
+      this.alertMsg = 'An unexpected error occurred.';
+      this.alertColor = 'red';
+      this.inSubmission = false;
+      return;
+    }
+    this.alertMsg = 'Success, account created.';
+    this.alertColor = 'green';
   }
 }
