@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { AuthService } from './services/auth.service';
 // import { ModalService } from './services/modal.service';
 
 @Component({
@@ -7,6 +8,7 @@ import { Component } from '@angular/core';
   styleUrls: ['./app.component.css'],
 })
 export class AppComponent {
+  constructor(public auth: AuthService) {}
   // showModal = true;
   // constructor(public modal: ModalService) {}
   // ngOnInit() {
