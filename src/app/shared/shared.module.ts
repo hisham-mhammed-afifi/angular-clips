@@ -11,6 +11,7 @@ import { TabsContainerComponent } from './tabs-container/tabs-container.componen
 // import { ModalService } from '../services/modal.service';
 
 import { NgxMaskModule } from 'ngx-mask';
+import { EventBlockerDirective } from './directives/event-blocker.directive';
 
 @NgModule({
   declarations: [
@@ -19,6 +20,7 @@ import { NgxMaskModule } from 'ngx-mask';
     TabComponent,
     InputComponent,
     AlertComponent,
+    EventBlockerDirective,
   ],
   imports: [CommonModule, ReactiveFormsModule, NgxMaskModule.forRoot()],
   exports: [
@@ -27,6 +29,7 @@ import { NgxMaskModule } from 'ngx-mask';
     TabComponent,
     InputComponent,
     AlertComponent,
+    EventBlockerDirective,
   ],
   // providers: [ModalService],
 })
