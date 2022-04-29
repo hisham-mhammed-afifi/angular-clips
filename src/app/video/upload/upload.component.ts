@@ -1,20 +1,26 @@
-import { Component, OnInit } from '@angular/core';
+import { Router } from '@angular/router';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
-import { last, switchMap } from 'rxjs/operators';
 import { v4 as uuid } from 'uuid';
+import { ClipService } from 'src/app/services/clip.service';
+import { FfmpegService } from 'src/app/services/ffmpeg.service';
+import { switchMap } from 'rxjs/operators';
+import { combineLatest, forkJoin } from 'rxjs';
 
 // firebase imports
-import { AngularFireStorage } from '@angular/fire/compat/storage';
+import {
+  AngularFireStorage,
+  AngularFireUploadTask,
+} from '@angular/fire/compat/storage';
 import { AngularFireAuth } from '@angular/fire/compat/auth';
 import firebase from 'firebase/compat/app';
-import { ClipService } from 'src/app/services/clip.service';
 
 @Component({
   selector: 'app-upload',
   templateUrl: './upload.component.html',
   styleUrls: ['./upload.component.css'],
 })
-export class UploadComponent implements OnInit {
+export class UploadComponent implements OnInit, OnDestroy {
   isDragover = false;
   file: File | null = null;
   nextStep = false;
@@ -25,6 +31,10 @@ export class UploadComponent implements OnInit {
   percentage = 0;
   showPercentage = false;
   user: firebase.User | null = null;
+  task?: AngularFireUploadTask;
+  screenshots: string[] = [];
+  selectedScreenshot = '';
+  screenshotTask?: AngularFireUploadTask;
 
   title = new FormControl('', [Validators.required, Validators.minLength(3)]);
   uploadForm = new FormGroup({
@@ -34,25 +44,34 @@ export class UploadComponent implements OnInit {
   constructor(
     private storage: AngularFireStorage,
     private auth: AngularFireAuth,
-    private clipsService: ClipService
+    private clipsService: ClipService,
+    private router: Router,
+    public ffmpegService: FfmpegService
   ) {
     auth.user.subscribe((user) => (this.user = user));
+    this.ffmpegService.init();
   }
 
   ngOnInit(): void {}
 
-  storeFile(e: Event) {
+  async storeFile(e: Event) {
+    if (this.ffmpegService.isRunning) return;
     this.isDragover = false;
-    this.file = (e as DragEvent).dataTransfer?.files.item(0) ?? null;
-    if (!this.file || this.file.type !== 'video/mp4') {
-      return;
+    if ((e as DragEvent).dataTransfer) {
+      this.file = (e as DragEvent).dataTransfer?.files.item(0) ?? null;
+    } else {
+      this.file = (e.target as HTMLInputElement).files?.item(0) ?? null;
     }
+    if (!this.file || this.file.type !== 'video/mp4') return;
+    this.screenshots = await this.ffmpegService.getScreenshots(this.file);
+    this.selectedScreenshot = this.screenshots[0];
     this.title.setValue(this.file.name.replace(/\.[^/.]+$/, ''));
-
     this.nextStep = true;
   }
 
-  uploadFile() {
+  async uploadFile() {
+    this.uploadForm.disable();
+
     this.showAlert = true;
     this.alertColor = 'blue';
     this.alertMsg = 'Please wait, your clip is being uploaded...';
@@ -61,33 +80,57 @@ export class UploadComponent implements OnInit {
 
     const clipFileName = uuid();
     const clipPath = `clips/${clipFileName}.mp4`;
-    const task = this.storage.upload(clipPath, this.file);
+    const screenshotBlob = await this.ffmpegService.blobFromURL(
+      this.selectedScreenshot
+    );
+    const screenshotPath = `screenshot/${clipFileName}.png`;
+    this.task = this.storage.upload(clipPath, this.file);
     const clipRef = this.storage.ref(clipPath);
-    task.percentageChanges().subscribe((progress) => {
-      this.percentage = (progress as number) / 100;
+    this.screenshotTask = this.storage.upload(screenshotPath, screenshotBlob);
+    const screenshotRef = this.storage.ref(screenshotPath);
+    combineLatest([
+      this.task.percentageChanges(),
+      this.screenshotTask.percentageChanges(),
+    ]).subscribe(([clipProgress, screenshotProgress]) => {
+      if (!clipProgress || !screenshotProgress) return;
+      const total = clipProgress + screenshotProgress;
+      this.percentage = (total as number) / 200;
     });
-    task
-      .snapshotChanges()
+    forkJoin([
+      this.task.snapshotChanges(),
+      this.screenshotTask.snapshotChanges(),
+    ])
       .pipe(
-        last(),
-        switchMap(() => clipRef.getDownloadURL())
+        switchMap(() =>
+          forkJoin([clipRef.getDownloadURL(), screenshotRef.getDownloadURL()])
+        )
       )
       .subscribe({
-        next: (url) => {
+        next: async ([clipURL, screenshotURL]) => {
           const clip = {
             uid: this.user?.uid as string,
             displayName: this.user?.displayName as string,
             title: this.title.value,
             fileName: `${clipFileName}.mp4`,
-            url,
+            url: clipURL,
+            thumbnail: screenshotURL,
+            thumbnailName: `${clipFileName}.png`,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
           };
-          this.clipsService.createClip(clip);
+          const clipDocRef = await this.clipsService.createClip(clip);
 
           this.alertColor = 'green';
           this.alertMsg = 'Success, your clip is uploaded.';
           this.showPercentage = false;
+
+          // redirect the user after second to see success msg
+          setTimeout(() => {
+            this.router.navigate(['clip', clipDocRef.id]);
+          }, 1000);
         },
         error: (error) => {
+          this.uploadForm.enable();
+
           this.alertColor = 'red';
           this.alertMsg = 'Failed, Please try again later.';
           this.inSubmission = true;
@@ -95,5 +138,9 @@ export class UploadComponent implements OnInit {
           console.error(error);
         },
       });
+  }
+
+  ngOnDestroy(): void {
+    this.task?.cancel();
   }
 }

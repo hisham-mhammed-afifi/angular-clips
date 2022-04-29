@@ -7,7 +7,7 @@
   [dropSpecialCharacters]="false"
 />
 
-<!-- handling name errors -->
+<!-- handling errors -->
 <ng-container *ngIf="control.touched && control.dirty">
   <p class="text-red-400" *ngIf="control.errors?.pattern">
     Password must 8 chars, 1 uppercase, 1 lowercase and 1 num.
